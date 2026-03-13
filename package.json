@@ -1,0 +1,17 @@
+{
+  "name": "mdreview-on-chrome",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Chrome extension for reviewing Markdown files on GitHub",
+  "scripts": {
+    "test:e2e:phase1": "npx playwright test tests/e2e/phase1.test.js",
+    "test:e2e:phase2": "npx playwright test tests/e2e/phase2.test.js",
+    "test:e2e:phase3": "npx playwright test tests/e2e/phase3.test.js",
+    "test:e2e:phase4": "npx playwright test tests/e2e/phase4.test.js",
+    "test:e2e": "npx playwright test tests/e2e/",
+    "test": "npx playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.45.0"
+  }
+}

@@ -1,0 +1,36 @@
+/* ===== GitHub ページのハイライトスタイル ===== */
+
+/* レビュー済み行のハイライト（tr構造 + div構造） */
+tr.mdreview-highlight,
+div.mdreview-highlight {
+  background-color: rgba(255, 213, 79, 0.3) !important;
+}
+
+tr.mdreview-highlight td,
+div.mdreview-highlight > div {
+  background-color: rgba(255, 213, 79, 0.3) !important;
+}
+
+/* 選択中の行のハイライト（tr構造 + div構造） */
+tr.mdreview-selecting,
+div.mdreview-selecting {
+  background-color: rgba(66, 165, 245, 0.3) !important;
+}
+
+tr.mdreview-selecting td,
+div.mdreview-selecting > div {
+  background-color: rgba(66, 165, 245, 0.3) !important;
+}
+
+/* 行番号のみにカーソルスタイルを適用（コードコンテンツ除外） */
+.react-line-number[data-line-number]:hover,
+td[data-line-number]:hover {
+  cursor: pointer;
+  color: #0969da !important;
+}
+
+/* サイドバー展開時にGitHubコンテンツを右マージン確保 */
+body.mdreview-sidebar-open {
+  margin-right: 380px !important;
+  transition: margin-right 0.2s ease;
+}
