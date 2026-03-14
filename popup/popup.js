@@ -1,7 +1,7 @@
 import { MESSAGES, DEFAULTS } from '../lib/constants.js';
 import { parseGitHubUrl } from '../lib/github-parser.js';
-import { getReviews, addReview, updateReview, deleteReview, getSettings, saveSettings } from '../lib/storage.js';
-import { generateMarkdown } from '../lib/markdown-export.js';
+import { getFileComments, addComment, updateComment, deleteComment, getSettings, saveSettings } from '../lib/storage.js';
+import { generateRepoMarkdown } from '../lib/markdown-export.js';
 
 let fileInfo = null;
 let currentSelection = null;
@@ -59,7 +59,7 @@ async function init() {
   elFileInfo.classList.remove('hidden');
 
   // レビュー一覧取得
-  reviews = await getReviews(fileInfo);
+  reviews = await getFileComments(fileInfo);
   renderComments();
 
   // コンテンツスクリプトから最新選択状態を取得
@@ -116,7 +116,7 @@ async function saveComment() {
 
   if (editingId) {
     // 編集中のコメントを更新
-    await updateReview(fileInfo, editingId, commentText);
+    await updateComment(fileInfo, editingId, commentText);
     editingId = null;
   } else {
     // 新規コメント
@@ -131,10 +131,10 @@ async function saveComment() {
     } else {
       commentData.selectedText = currentSelection.selectedText;
     }
-    await addReview(fileInfo, commentData);
+    await addComment(fileInfo, commentData);
   }
 
-  reviews = await getReviews(fileInfo);
+  reviews = await getFileComments(fileInfo);
   renderComments();
   elCommentForm.classList.add('hidden');
   elCommentInput.value = '';
@@ -215,8 +215,8 @@ function startEditComment(review) {
 
 async function confirmDeleteComment(id) {
   if (!fileInfo) return;
-  await deleteReview(fileInfo, id);
-  reviews = await getReviews(fileInfo);
+  await deleteComment(fileInfo, id);
+  reviews = await getFileComments(fileInfo);
   renderComments();
   chrome.runtime.sendMessage({ type: MESSAGES.COMMENTS_UPDATED, fileInfo }).catch(() => {});
 }
@@ -224,7 +224,8 @@ async function confirmDeleteComment(id) {
 async function copyToClipboard() {
   if (!fileInfo || reviews.length === 0) return;
   const settings = await getSettings();
-  const md = generateMarkdown(fileInfo, reviews, settings.aiPromptSuffix);
+  const fileCommentsMap = { [fileInfo.path]: reviews };
+  const md = generateRepoMarkdown(fileInfo, fileCommentsMap, settings.aiPromptSuffix);
   try {
     await navigator.clipboard.writeText(md);
     const btn = document.getElementById('btn-copy');
@@ -239,12 +240,13 @@ async function copyToClipboard() {
 async function downloadMd() {
   if (!fileInfo || reviews.length === 0) return;
   const settings = await getSettings();
-  const md = generateMarkdown(fileInfo, reviews, settings.aiPromptSuffix);
+  const fileCommentsMap = { [fileInfo.path]: reviews };
+  const md = generateRepoMarkdown(fileInfo, fileCommentsMap, settings.aiPromptSuffix);
   const blob = new Blob([md], { type: 'text/markdown' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `review-${fileInfo.filename}-${Date.now()}.md`;
+  a.download = `review-${fileInfo.repo}-${Date.now()}.md`;
   a.click();
   URL.revokeObjectURL(url);
 }
