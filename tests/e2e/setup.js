@@ -17,21 +17,24 @@ export async function launchBrowserWithExtension() {
     ],
   });
 
-  // 拡張機能の Service Worker が起動するのを待つ
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  // Service Worker の起動をイベントベースで待機
+  let serviceWorker = context.serviceWorkers()[0];
+  if (!serviceWorker) {
+    serviceWorker = await context.waitForEvent('serviceworker', { timeout: 10000 });
+  }
 
   // 拡張機能のIDを取得
   let extensionId;
   const targets = context.backgroundPages();
   if (targets.length > 0) {
-    const url = targets[0].url();
-    extensionId = url.split('/')[2];
-  } else {
-    // Service Worker からIDを取得
-    const workers = context.serviceWorkers();
-    if (workers.length > 0) {
-      extensionId = workers[0].url().split('/')[2];
-    }
+    extensionId = targets[0].url().split('/')[2];
+  } else if (serviceWorker) {
+    extensionId = serviceWorker.url().split('/')[2];
+  }
+
+  if (!extensionId) {
+    await context.close();
+    throw new Error('Extension ID could not be resolved');
   }
 
   return { context, extensionId };
