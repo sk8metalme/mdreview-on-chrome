@@ -147,3 +147,96 @@ test('content.js の折りたたみサイドバーUI要素が定義されてい�
   expect(content).toContain('expandSidebar');          // 展開関数
   expect(content).toContain('true'); // captureフェーズでのクリックイベント登録
 });
+
+test('generateRepoMarkdown でリポジトリ全体のMarkdownを生成する', async () => {
+  const { generateRepoMarkdown } = await import('../../lib/markdown-export.js');
+
+  const fileInfo = {
+    owner: 'testowner',
+    repo: 'testrepo',
+    branch: 'main',
+    path: 'docs/README.md',
+    filename: 'README.md',
+  };
+
+  const fileCommentsMap = {
+    'docs/README.md': [
+      {
+        id: 'abc123',
+        type: 'code',
+        lineNumber: 5,
+        lineContent: 'const foo = "bar";',
+        comment: 'この変数名は改善できます',
+        createdAt: '2026-03-14T00:00:00Z',
+        updatedAt: '2026-03-14T00:00:00Z',
+      },
+    ],
+    'docs/guide.md': [
+      {
+        id: 'def456',
+        type: 'preview',
+        selectedText: 'This is a test paragraph.',
+        comment: 'より詳しく説明してください',
+        createdAt: '2026-03-14T00:00:00Z',
+        updatedAt: '2026-03-14T00:00:00Z',
+      },
+      {
+        id: 'ghi789',
+        type: 'code',
+        lineNumber: 10,
+        lineContent: 'export default {}',
+        comment: '型定義を追加してください',
+        createdAt: '2026-03-14T00:00:00Z',
+        updatedAt: '2026-03-14T00:00:00Z',
+      },
+    ],
+  };
+
+  const md = generateRepoMarkdown(fileInfo, fileCommentsMap, 'カスタム指示文');
+
+  // ヘッダー
+  expect(md).toContain('# Repository Review: testowner/testrepo @ main');
+  expect(md).toContain('Total Files**: 2');
+  expect(md).toContain('Total Comments**: 3');
+
+  // 現在のファイルが先頭
+  const readmeIdx = md.indexOf('## docs/README.md');
+  const guideIdx = md.indexOf('## docs/guide.md');
+  expect(readmeIdx).toBeGreaterThan(-1);
+  expect(guideIdx).toBeGreaterThan(-1);
+  expect(readmeIdx).toBeLessThan(guideIdx);
+
+  // コメント内容
+  expect(md).toContain('### Comment 1 (Code L5)');
+  expect(md).toContain('const foo = "bar";');
+  expect(md).toContain('この変数名は改善できます');
+  expect(md).toContain('### Comment 1 (Preview)');
+  expect(md).toContain('This is a test paragraph.');
+  expect(md).toContain('より詳しく説明してください');
+  expect(md).toContain('### Comment 2 (Code L10)');
+  expect(md).toContain('export default {}');
+  expect(md).toContain('型定義を追加してください');
+
+  // サマリー
+  expect(md).toContain('## Summary');
+  expect(md).toContain('カスタム指示文');
+});
+
+test('content.js のファイルグループUIとリポジトリベースのストレージが定義されている', async () => {
+  const { readFileSync } = await import('fs');
+  const content = readFileSync(join(EXTENSION_PATH, 'content/content.js'), 'utf-8');
+
+  // リポジトリベースのストレージ
+  expect(content).toContain("const REPO_PREFIX = 'repo:'");  // 新プレフィックス
+  expect(content).toContain('allRepoReviews');               // リポジトリ全体コメント辞書
+  expect(content).toContain('loadRepoData');                 // リポジトリデータ読み込み
+  expect(content).toContain('saveFileReviews');              // ファイル単位保存
+  expect(content).toContain('deleteAllRepoReviewsFromStorage'); // 全削除
+
+  // ファイルグループUI
+  expect(content).toContain('mdreview-file-group');          // ファイルグループ要素
+  expect(content).toContain('mdreview-repo-info');           // リポジトリ情報表示
+  expect(content).toContain('btn-delete-all');               // 全削除ボタン
+  expect(content).toContain('createFileGroup');              // ファイルグループ作成関数
+  expect(content).toContain('generateRepoMarkdown');         // リポジトリMarkdown生成
+});

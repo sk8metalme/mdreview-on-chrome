@@ -19,7 +19,7 @@ const GITHUB = {
 };
 
 const SIDEBAR_HOST_ID = 'mdreview-shadow-host';
-const REVIEWS_PREFIX = 'reviews:';
+const REPO_PREFIX = 'repo:';
 const SETTINGS_KEY = 'settings';
 const AI_PROMPT_SUFFIX_DEFAULT = '以上のレビューコメントを踏まえて、このMarkdownファイルを改善してください。';
 
@@ -54,7 +54,7 @@ const SIDEBAR_CSS = `
   margin-bottom: 4px;
 }
 
-.mdreview-file-info {
+.mdreview-repo-info {
   font-size: 12px;
   color: #57606a;
   word-break: break-all;
@@ -114,6 +114,7 @@ const SIDEBAR_CSS = `
 .mdreview-export-buttons {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .btn {
@@ -160,6 +161,16 @@ const SIDEBAR_CSS = `
   background: #f3f4f6;
 }
 
+.btn-delete-all {
+  background: #cf222e;
+  color: white;
+  border-color: rgba(27, 31, 36, 0.15);
+}
+
+.btn-delete-all:hover {
+  background: #a40e26;
+}
+
 .mdreview-error {
   color: #cf222e;
   font-size: 12px;
@@ -167,10 +178,62 @@ const SIDEBAR_CSS = `
 }
 
 .mdreview-comments-list {
-  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.mdreview-file-group {
+  border-bottom: 1px solid #d0d7de;
+}
+
+.mdreview-file-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: #f6f8fa;
+  user-select: none;
+}
+
+.mdreview-file-group-header:hover {
+  background: #eaeef2;
+}
+
+.mdreview-file-group-header .file-name {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.mdreview-file-group-header .badge {
+  background: #0969da;
+  color: white;
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.mdreview-file-group-header .current-file-indicator {
+  color: #0969da;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.mdreview-file-group-body {
+  padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.mdreview-file-group.collapsed .mdreview-file-group-body {
+  display: none;
 }
 
 .comment-item {
@@ -301,6 +364,7 @@ let sidebarShadowRoot = null;
 let sidebarState = 'hidden'; // 'hidden' | 'collapsed' | 'expanded'
 let fileInfo = null;
 let reviews = [];
+let allRepoReviews = {};
 let currentSelection = null;
 let editingId = null;
 let highlightedRows = new Set();
@@ -345,22 +409,39 @@ function updateModeInfo() {
   }
 }
 
-function buildStorageKey(fi) {
-  return `${REVIEWS_PREFIX}${fi.owner}/${fi.repo}/${fi.path}@${fi.branch}`;
+// ===== ストレージ操作（インライン） =====
+function buildRepoStorageKey(fi) {
+  return `${REPO_PREFIX}${fi.owner}/${fi.repo}@${fi.branch}`;
 }
 
-// ===== ストレージ操作（インライン） =====
+async function loadRepoData() {
+  if (!fileInfo) return {};
+  const key = buildRepoStorageKey(fileInfo);
+  const result = await chrome.storage.local.get(key);
+  return result[key] ?? {};
+}
+
+async function saveRepoData(data) {
+  if (!fileInfo) return;
+  const key = buildRepoStorageKey(fileInfo);
+  await chrome.storage.local.set({ [key]: data });
+}
+
 async function loadReviews() {
   if (!fileInfo) return [];
-  const key = buildStorageKey(fileInfo);
-  const result = await chrome.storage.local.get(key);
-  return result[key] ?? [];
+  const repoData = await loadRepoData();
+  return repoData[fileInfo.path] ?? [];
 }
 
-async function saveReviewsToStorage(data) {
+async function saveFileReviews(data) {
   if (!fileInfo) return;
-  const key = buildStorageKey(fileInfo);
-  await chrome.storage.local.set({ [key]: data });
+  const repoData = await loadRepoData();
+  if (data.length === 0) {
+    delete repoData[fileInfo.path];
+  } else {
+    repoData[fileInfo.path] = data;
+  }
+  await saveRepoData(repoData);
 }
 
 async function addReviewItem(comment) {
@@ -372,7 +453,7 @@ async function addReviewItem(comment) {
     createdAt: now,
     updatedAt: now,
   };
-  await saveReviewsToStorage([...existing, newItem]);
+  await saveFileReviews([...existing, newItem]);
   return newItem;
 }
 
@@ -381,12 +462,31 @@ async function updateReviewItem(id, commentText) {
   const updated = existing.map(r =>
     r.id === id ? { ...r, comment: commentText, updatedAt: new Date().toISOString() } : r
   );
-  await saveReviewsToStorage(updated);
+  await saveFileReviews(updated);
 }
 
 async function deleteReviewItem(id) {
   const existing = await loadReviews();
-  await saveReviewsToStorage(existing.filter(r => r.id !== id));
+  await saveFileReviews(existing.filter(r => r.id !== id));
+}
+
+async function deleteReviewItemFromPath(id, path) {
+  if (!fileInfo) return;
+  const repoData = await loadRepoData();
+  const comments = repoData[path] ?? [];
+  const filtered = comments.filter(r => r.id !== id);
+  if (filtered.length === 0) {
+    delete repoData[path];
+  } else {
+    repoData[path] = filtered;
+  }
+  await saveRepoData(repoData);
+}
+
+async function deleteAllRepoReviewsFromStorage() {
+  if (!fileInfo) return;
+  const key = buildRepoStorageKey(fileInfo);
+  await chrome.storage.local.remove(key);
 }
 
 async function loadSettings() {
@@ -435,6 +535,68 @@ function generateMarkdown(fi, revs, aiPromptSuffix = AI_PROMPT_SUFFIX_DEFAULT) {
     lines.push('');
     lines.push('---');
     lines.push('');
+  });
+
+  lines.push('## Summary');
+  lines.push('');
+  lines.push(aiPromptSuffix);
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+function generateRepoMarkdown(fi, fileCommentsMap, aiPromptSuffix = AI_PROMPT_SUFFIX_DEFAULT) {
+  const exportDate = new Date().toLocaleString('ja-JP', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  });
+
+  const filePaths = Object.keys(fileCommentsMap);
+  const totalComments = filePaths.reduce((sum, p) => sum + (fileCommentsMap[p]?.length ?? 0), 0);
+
+  const lines = [
+    `# Repository Review: ${fi.owner}/${fi.repo} @ ${fi.branch}`,
+    '',
+    `- **Date**: ${exportDate}`,
+    `- **Total Files**: ${filePaths.length}`,
+    `- **Total Comments**: ${totalComments}`,
+    '',
+    '---',
+    '',
+  ];
+
+  // 現在のファイルを先頭に、他はパス順
+  const sortedPaths = [...filePaths].sort((a, b) => {
+    if (a === fi.path) return -1;
+    if (b === fi.path) return 1;
+    return a.localeCompare(b);
+  });
+
+  sortedPaths.forEach(path => {
+    const comments = fileCommentsMap[path] ?? [];
+    lines.push(`## ${path} (${comments.length} comment${comments.length !== 1 ? 's' : ''})`);
+    lines.push('');
+
+    comments.forEach((review, index) => {
+      const num = index + 1;
+      if (review.type === 'code') {
+        lines.push(`### Comment ${num} (Code L${review.lineNumber})`);
+        if (review.lineContent) {
+          lines.push(`> \`${review.lineContent}\``);
+          lines.push('');
+        }
+      } else {
+        lines.push(`### Comment ${num} (Preview)`);
+        if (review.selectedText) {
+          lines.push(`> ${review.selectedText.replace(/\n/g, '\n> ')}`);
+          lines.push('');
+        }
+      }
+      lines.push(review.comment);
+      lines.push('');
+      lines.push('---');
+      lines.push('');
+    });
   });
 
   lines.push('## Summary');
@@ -539,7 +701,7 @@ function createSidebar() {
         <h2>Markdown Review</h2>
         <button class="btn-collapse-toggle btn-collapse-sidebar" title="折りたたむ">▶</button>
       </div>
-      <div class="mdreview-file-info"></div>
+      <div class="mdreview-repo-info"></div>
     </div>
     <div class="mdreview-mode-info">Codeモード: 行番号をクリックしてコメント対象を選択してください。</div>
     <div class="mdreview-selection" style="display:none;"></div>
@@ -553,9 +715,10 @@ function createSidebar() {
     <div class="mdreview-export-buttons" style="display:none;">
       <button class="btn btn-export">Markdownをコピー</button>
       <button class="btn btn-download">.mdを保存</button>
+      <button class="btn btn-delete-all">全コメント削除</button>
     </div>
     <div class="mdreview-error" style="display:none;"></div>
-    <ul class="mdreview-comments-list"></ul>
+    <div class="mdreview-comments-list"></div>
     <div class="mdreview-empty">このファイルのコメントはまだありません</div>
   `;
   sidebarShadowRoot.appendChild(sidebar);
@@ -630,11 +793,10 @@ async function renderSidebar() {
   const sidebar = getSidebar();
   if (!sidebar) return;
 
-  // ファイル情報更新
-  const fi = fileInfo;
-  if (fi) {
-    sidebar.querySelector('.mdreview-file-info').textContent =
-      `${fi.owner}/${fi.repo} / ${fi.filename} @ ${fi.branch}`;
+  // リポジトリ情報更新
+  if (fileInfo) {
+    sidebar.querySelector('.mdreview-repo-info').textContent =
+      `${fileInfo.owner}/${fileInfo.repo} @ ${fileInfo.branch}`;
   }
 
   // モード情報更新（Code/Preview タブ状態を反映）
@@ -642,7 +804,7 @@ async function renderSidebar() {
 
   // 選択状態・コメント一覧更新
   updateSelectionDisplay();
-  renderComments();
+  await renderComments();
 }
 
 function updateSelectionDisplay() {
@@ -676,9 +838,12 @@ function updateSelectionDisplay() {
   sidebar.querySelector('.mdreview-textarea').value = '';
 }
 
-function renderComments() {
+async function renderComments() {
   const sidebar = getSidebar();
   if (!sidebar) return;
+
+  allRepoReviews = await loadRepoData();
+  reviews = allRepoReviews[fileInfo?.path] ?? [];
 
   const listEl = sidebar.querySelector('.mdreview-comments-list');
   const emptyEl = sidebar.querySelector('.mdreview-empty');
@@ -686,7 +851,10 @@ function renderComments() {
 
   listEl.innerHTML = '';
 
-  if (reviews.length === 0) {
+  const filePaths = Object.keys(allRepoReviews);
+  const totalComments = filePaths.reduce((sum, p) => sum + (allRepoReviews[p]?.length ?? 0), 0);
+
+  if (totalComments === 0) {
     emptyEl.style.display = '';
     exportEl.style.display = 'none';
     return;
@@ -695,29 +863,117 @@ function renderComments() {
   emptyEl.style.display = 'none';
   exportEl.style.display = '';
 
-  reviews.forEach((review, index) => {
-    const li = document.createElement('li');
-    li.className = 'comment-item';
-    li.dataset.id = review.id;
-
-    const location = formatReviewLocation(review);
-
-    li.innerHTML = `
-      <div class="comment-item-header">
-        <span class="comment-location">#${index + 1} ${escapeHtml(location)}</span>
-        <div class="comment-actions">
-          <button class="btn-sm btn-edit" data-id="${escapeHtml(review.id)}">編集</button>
-          <button class="btn-sm btn-del" data-id="${escapeHtml(review.id)}">削除</button>
-        </div>
-      </div>
-      <div class="comment-text">${escapeHtml(review.comment)}</div>
-    `;
-
-    li.querySelector('.btn-edit').addEventListener('click', () => startEdit(review));
-    li.querySelector('.btn-del').addEventListener('click', () => doDelete(review.id));
-
-    listEl.appendChild(li);
+  // 現在のファイルを先頭に、他はパス順
+  const currentPath = fileInfo?.path;
+  const sortedPaths = [...filePaths].sort((a, b) => {
+    if (a === currentPath) return -1;
+    if (b === currentPath) return 1;
+    return a.localeCompare(b);
   });
+
+  sortedPaths.forEach(path => {
+    const comments = allRepoReviews[path] ?? [];
+    const isCurrentFile = (path === currentPath);
+    const group = createFileGroup(path, comments, isCurrentFile);
+    listEl.appendChild(group);
+  });
+}
+
+function createFileGroup(path, comments, isCurrentFile) {
+  const filename = path.split('/').pop();
+  const group = document.createElement('div');
+  group.className = 'mdreview-file-group' + (isCurrentFile ? '' : ' collapsed');
+
+  const header = document.createElement('div');
+  header.className = 'mdreview-file-group-header';
+
+  const leftDiv = document.createElement('div');
+  leftDiv.style.cssText = 'display:flex; align-items:center; gap:6px; min-width:0; overflow:hidden;';
+
+  const toggle = document.createElement('span');
+  toggle.className = 'file-group-toggle';
+  toggle.textContent = isCurrentFile ? '▼' : '▶';
+
+  const fileNameSpan = document.createElement('span');
+  fileNameSpan.className = 'file-name';
+  fileNameSpan.title = path;
+  fileNameSpan.textContent = filename;
+
+  leftDiv.appendChild(toggle);
+  leftDiv.appendChild(fileNameSpan);
+
+  if (isCurrentFile) {
+    const indicator = document.createElement('span');
+    indicator.className = 'current-file-indicator';
+    indicator.textContent = '（現在）';
+    leftDiv.appendChild(indicator);
+  }
+
+  const badge = document.createElement('span');
+  badge.className = 'badge';
+  badge.textContent = comments.length;
+
+  header.appendChild(leftDiv);
+  header.appendChild(badge);
+
+  header.addEventListener('click', () => {
+    group.classList.toggle('collapsed');
+    toggle.textContent = group.classList.contains('collapsed') ? '▶' : '▼';
+  });
+
+  const body = document.createElement('div');
+  body.className = 'mdreview-file-group-body';
+
+  comments.forEach((review, index) => {
+    const item = document.createElement('div');
+    item.className = 'comment-item';
+    item.dataset.id = review.id;
+
+    const location = review.type === 'code'
+      ? `Code L${review.lineNumber}`
+      : `Preview「${(review.selectedText || '').slice(0, 15)}…」`;
+
+    const itemHeader = document.createElement('div');
+    itemHeader.className = 'comment-item-header';
+
+    const locationSpan = document.createElement('span');
+    locationSpan.className = 'comment-location';
+    locationSpan.textContent = `#${index + 1} ${location}`;
+
+    const actions = document.createElement('div');
+    actions.className = 'comment-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn-sm btn-edit';
+    editBtn.textContent = '編集';
+    editBtn.addEventListener('click', () => {
+      if (isCurrentFile) {
+        startEdit(review);
+      }
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn-sm btn-del';
+    delBtn.textContent = '削除';
+    delBtn.addEventListener('click', () => doDelete(review.id, path));
+
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    itemHeader.appendChild(locationSpan);
+    itemHeader.appendChild(actions);
+
+    const commentText = document.createElement('div');
+    commentText.className = 'comment-text';
+    commentText.textContent = review.comment;
+
+    item.appendChild(itemHeader);
+    item.appendChild(commentText);
+    body.appendChild(item);
+  });
+
+  group.appendChild(header);
+  group.appendChild(body);
+  return group;
 }
 
 // ===== サイドバーイベント =====
@@ -759,12 +1015,11 @@ function attachSidebarEvents() {
         await addReviewItem(commentData);
       }
 
-      reviews = await loadReviews();
       textarea.value = '';
       currentSelection = null;
       editingId = null;
       updateSelectionDisplay();
-      renderComments();
+      await renderComments();
       restoreHighlights();
     } catch (e) {
       showError('保存に失敗しました: ' + e.message);
@@ -782,9 +1037,12 @@ function attachSidebarEvents() {
 
   // Markdownコピーボタン
   sidebar.querySelector('.btn-export').addEventListener('click', async () => {
-    if (!fileInfo || reviews.length === 0) return;
+    if (!fileInfo) return;
+    const repoData = await loadRepoData();
+    const totalComments = Object.values(repoData).flat().length;
+    if (totalComments === 0) return;
     const settings = await loadSettings();
-    const md = generateMarkdown(fileInfo, reviews, settings.aiPromptSuffix);
+    const md = generateRepoMarkdown(fileInfo, repoData, settings.aiPromptSuffix);
     try {
       await navigator.clipboard.writeText(md);
       const btn = sidebar.querySelector('.btn-export');
@@ -798,17 +1056,49 @@ function attachSidebarEvents() {
 
   // .md保存ボタン
   sidebar.querySelector('.btn-download').addEventListener('click', async () => {
-    if (!fileInfo || reviews.length === 0) return;
+    if (!fileInfo) return;
+    const repoData = await loadRepoData();
+    const totalComments = Object.values(repoData).flat().length;
+    if (totalComments === 0) return;
     const settings = await loadSettings();
-    const md = generateMarkdown(fileInfo, reviews, settings.aiPromptSuffix);
+    const md = generateRepoMarkdown(fileInfo, repoData, settings.aiPromptSuffix);
     const blob = new Blob([md], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `review-${fileInfo.filename}-${Date.now()}.md`;
+    a.download = `review-${fileInfo.repo}-${Date.now()}.md`;
     a.click();
     URL.revokeObjectURL(url);
   });
+
+  // 全コメント削除ボタン
+  let deleteAllConfirm = false;
+  const deleteAllBtn = sidebar.querySelector('.btn-delete-all');
+  if (deleteAllBtn) {
+    deleteAllBtn.addEventListener('click', async () => {
+      if (!deleteAllConfirm) {
+        deleteAllConfirm = true;
+        deleteAllBtn.textContent = '本当に削除しますか？';
+        setTimeout(() => {
+          deleteAllConfirm = false;
+          deleteAllBtn.textContent = '全コメント削除';
+        }, 3000);
+      } else {
+        deleteAllConfirm = false;
+        deleteAllBtn.textContent = '全コメント削除';
+        try {
+          await deleteAllRepoReviewsFromStorage();
+          reviews = [];
+          allRepoReviews = {};
+          updateSelectionDisplay();
+          await renderComments();
+          restoreHighlights();
+        } catch (e) {
+          showError('削除に失敗しました: ' + e.message);
+        }
+      }
+    });
+  }
 }
 
 function startEdit(review) {
@@ -831,16 +1121,19 @@ function startEdit(review) {
   textarea.focus();
 }
 
-async function doDelete(id) {
+async function doDelete(id, path) {
   try {
-    await deleteReviewItem(id);
-    reviews = await loadReviews();
+    if (path && fileInfo && path !== fileInfo.path) {
+      await deleteReviewItemFromPath(id, path);
+    } else {
+      await deleteReviewItem(id);
+    }
     if (editingId === id) {
       editingId = null;
       currentSelection = null;
     }
     updateSelectionDisplay();
-    renderComments();
+    await renderComments();
     restoreHighlights();
   } catch (e) {
     showError('削除に失敗しました: ' + e.message);
@@ -951,31 +1244,45 @@ function highlightCodeLine(lineNumber) {
 }
 
 // ===== SPAナビゲーション対応 =====
+
+// turbo:load と MutationObserver の URL 変更検知で共通利用するナビゲーション処理
+async function handleNavigation() {
+  currentSelection = null;
+  editingId = null;
+
+  if (!isMdPage()) {
+    hideSidebar();
+    return;
+  }
+
+  fileInfo = parseUrl();
+  allRepoReviews = await loadRepoData();
+  reviews = allRepoReviews[fileInfo?.path] ?? [];
+
+  if (sidebarState === 'expanded') {
+    await renderSidebar();
+  } else {
+    collapseSidebar();
+  }
+  restoreHighlights();
+}
+
 function observeTabSwitches() {
   // GitHub は Turbo (SPA) を使用
-  document.addEventListener('turbo:load', async () => {
-    currentSelection = null;
-    editingId = null;
+  document.addEventListener('turbo:load', handleNavigation);
 
-    if (!isMdPage()) {
-      hideSidebar();
+  // MutationObserver でDOM変更を検知（URL変更・タブ切替・ハイライト復元等）
+  let lastTab = getCurrentTab();
+  let lastUrl = location.href;
+  const observer = new MutationObserver(() => {
+    // URL変更を検知 → ファイル情報を再読み込み（ReactベースのSPAナビゲーション対応）
+    const currentUrl = location.href;
+    if (currentUrl !== lastUrl) {
+      lastUrl = currentUrl;
+      handleNavigation();
       return;
     }
 
-    fileInfo = parseUrl();
-    reviews = await loadReviews();
-
-    if (sidebarState === 'expanded') {
-      await renderSidebar();
-    } else {
-      collapseSidebar();
-    }
-    restoreHighlights();
-  });
-
-  // MutationObserver でDOM変更を検知（タブ切替・ハイライト復元等）
-  let lastTab = getCurrentTab();
-  const observer = new MutationObserver(() => {
     if (!isMdPage()) return;
 
     // タブ切替を検知してモード情報を更新
@@ -1014,7 +1321,8 @@ async function init() {
   if (!isMdPage()) return;
 
   fileInfo = parseUrl();
-  reviews = await loadReviews();
+  allRepoReviews = await loadRepoData();
+  reviews = allRepoReviews[fileInfo?.path] ?? [];
 
   createSidebar();
   collapseSidebar(); // ページ遷移時は折りたたみ状態で表示

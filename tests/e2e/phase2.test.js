@@ -32,19 +32,21 @@ test.afterAll(async () => {
   await context.close();
 });
 
-test('chrome.storage.local の CRUD 操作が正常に動作する', async () => {
+test('chrome.storage.local の CRUD 操作が正常に動作する（リポジトリベース）', async () => {
   if (!serviceWorker) {
     test.skip();
     return;
   }
 
   const result = await serviceWorker.evaluate(async () => {
-    const storageKey = 'reviews:test-owner/test-repo/docs/test.md@main';
+    // リポジトリ単位のストレージキー
+    const storageKey = 'repo:test-owner/test-repo@main';
+    const filePath = 'docs/test.md';
 
     // クリア
     await chrome.storage.local.remove(storageKey);
 
-    // 追加
+    // 追加（リポジトリデータ全体をオブジェクトで保存）
     const id = crypto.randomUUID();
     const newComment = {
       type: 'code',
@@ -55,28 +57,31 @@ test('chrome.storage.local の CRUD 操作が正常に動作する', async () =>
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    await chrome.storage.local.set({ [storageKey]: [newComment] });
+    const repoData = { [filePath]: [newComment] };
+    await chrome.storage.local.set({ [storageKey]: repoData });
 
     // 取得
     const stored = await chrome.storage.local.get(storageKey);
-    const reviews = stored[storageKey] ?? [];
+    const fileComments = stored[storageKey]?.[filePath] ?? [];
 
     // 更新
-    const updated = reviews.map(r =>
+    const updatedComments = fileComments.map(r =>
       r.id === id ? { ...r, comment: '更新済みコメント', updatedAt: new Date().toISOString() } : r
     );
-    await chrome.storage.local.set({ [storageKey]: updated });
-    const afterUpdate = (await chrome.storage.local.get(storageKey))[storageKey];
+    await chrome.storage.local.set({ [storageKey]: { [filePath]: updatedComments } });
+    const afterUpdate = (await chrome.storage.local.get(storageKey))[storageKey]?.[filePath];
 
     // 削除
     const afterDelete = afterUpdate.filter(r => r.id !== id);
-    await chrome.storage.local.set({ [storageKey]: afterDelete });
-    const finalReviews = (await chrome.storage.local.get(storageKey))[storageKey];
+    const finalRepoData = afterDelete.length === 0 ? {} : { [filePath]: afterDelete };
+    await chrome.storage.local.set({ [storageKey]: finalRepoData });
+    const finalData = (await chrome.storage.local.get(storageKey))[storageKey];
+    const finalComments = finalData?.[filePath] ?? [];
 
     return {
-      initialCount: reviews.length,
+      initialCount: fileComments.length,
       updatedComment: afterUpdate[0]?.comment,
-      finalCount: finalReviews.length,
+      finalCount: finalComments.length,
     };
   });
 
