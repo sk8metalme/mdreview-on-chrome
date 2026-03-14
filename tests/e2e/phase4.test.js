@@ -145,7 +145,27 @@ test('content.js の折りたたみサイドバーUI要素が定義されてい�
   expect(content).toContain('sidebarState');           // 状態管理変数
   expect(content).toContain('collapseSidebar');        // 折りたたみ関数
   expect(content).toContain('expandSidebar');          // 展開関数
-  expect(content).toContain('true'); // captureフェーズでのクリックイベント登録
+  expect(content).toMatch(/addEventListener\(\s*['"]click['"]\s*,[\s\S]*?,\s*true\s*\)/); // captureフェーズでのクリックイベント登録
+});
+
+test('content.js が Markdown 判定付きで初期化とトグルを行う', async () => {
+  const { readFileSync } = await import('fs');
+  const content = readFileSync(join(EXTENSION_PATH, 'content/content.js'), 'utf-8');
+
+  expect(content).toContain("reason: 'not_markdown'");
+  expect(content).toContain('await handleNavigation();');
+  expect(content).not.toContain('if (!isMdPage()) return;\n\n  fileInfo = parseUrl();');
+});
+
+test('content.js がサイドバー内の設定UIと保存処理を持つ', async () => {
+  const { readFileSync } = await import('fs');
+  const content = readFileSync(join(EXTENSION_PATH, 'content/content.js'), 'utf-8');
+
+  expect(content).toContain('btn-settings-toggle');
+  expect(content).toContain('mdreview-settings-panel');
+  expect(content).toContain('mdreview-settings-textarea');
+  expect(content).toContain('async function saveSettings(settings)');
+  expect(content).toContain('設定の保存に失敗しました');
 });
 
 test('generateRepoMarkdown でリポジトリ全体のMarkdownを生成する', async () => {

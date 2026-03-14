@@ -14,7 +14,7 @@ const UI = {
 };
 
 const GITHUB = {
-  URL_PATTERN: /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/,
+  URL_PATTERN: /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)$/i,
   MD_EXTENSIONS: ['.md', '.markdown', '.mdx'],
 };
 
@@ -52,6 +52,19 @@ const SIDEBAR_CSS = `
   font-weight: 700;
   color: #24292f;
   margin-bottom: 4px;
+}
+
+.mdreview-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mdreview-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .mdreview-repo-info {
@@ -117,6 +130,52 @@ const SIDEBAR_CSS = `
   flex-wrap: wrap;
 }
 
+.mdreview-settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+}
+
+.mdreview-settings-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #24292f;
+}
+
+.mdreview-settings-help {
+  font-size: 12px;
+  color: #57606a;
+  line-height: 1.4;
+}
+
+.mdreview-settings-textarea {
+  width: 100%;
+  min-height: 88px;
+  padding: 8px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  line-height: 1.5;
+  background: #ffffff;
+}
+
+.mdreview-settings-textarea:focus {
+  border-color: #0969da;
+  box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.1);
+}
+
+.mdreview-settings-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .btn {
   padding: 6px 12px;
   border-radius: 6px;
@@ -169,6 +228,17 @@ const SIDEBAR_CSS = `
 
 .btn-delete-all:hover {
   background: #a40e26;
+}
+
+.btn-settings {
+  background: white;
+  color: #24292f;
+  border-color: #d0d7de;
+  flex: 0 0 auto;
+}
+
+.btn-settings:hover {
+  background: #f3f4f6;
 }
 
 .mdreview-error {
@@ -368,14 +438,48 @@ let allRepoReviews = {};
 let currentSelection = null;
 let editingId = null;
 let highlightedRows = new Set();
+let codeLineHandlersAttached = false;
+let previewSelectionHandlersAttached = false;
+let tabSwitchObserverStarted = false;
+let settingsPanelOpen = false;
 
 // ===== URL解析 =====
+function parseBlobTitle(title, owner, repo) {
+  if (typeof title !== 'string' || title.length === 0) return null;
+
+  const suffix = ` · ${owner}/${repo}`;
+  if (!title.endsWith(suffix)) return null;
+
+  const fileAndRef = title.slice(0, -suffix.length);
+  const atIndex = fileAndRef.lastIndexOf(' at ');
+  if (atIndex === -1) return null;
+
+  const path = fileAndRef.slice(0, atIndex).trim();
+  const branch = fileAndRef.slice(atIndex + 4).trim();
+  if (!path || !branch) return null;
+  if (!GITHUB.MD_EXTENSIONS.some(ext => path.toLowerCase().endsWith(ext))) return null;
+
+  return { path, branch };
+}
+
 function parseUrl() {
-  // クエリ文字列（?plain=1 等）を除外してpathを正しく取得
+  // クエリ文字列（?plain=1 等）を除外してblobパスを取得
   const url = location.origin + location.pathname;
   const match = url.match(GITHUB.URL_PATTERN);
   if (!match) return null;
-  const [, owner, repo, branch, path] = match;
+
+  const [, owner, repo, blobPath] = match;
+  const fromTitle = parseBlobTitle(document.title, owner, repo);
+  if (fromTitle) {
+    const filename = fromTitle.path.split('/').pop();
+    return { owner, repo, branch: fromTitle.branch, path: fromTitle.path, filename };
+  }
+
+  const firstSlashIndex = blobPath.indexOf('/');
+  if (firstSlashIndex === -1) return null;
+
+  const branch = blobPath.slice(0, firstSlashIndex);
+  const path = blobPath.slice(firstSlashIndex + 1);
   if (!GITHUB.MD_EXTENSIONS.some(ext => path.toLowerCase().endsWith(ext))) return null;
   const filename = path.split('/').pop();
   return { owner, repo, branch, path, filename };
@@ -492,6 +596,10 @@ async function deleteAllRepoReviewsFromStorage() {
 async function loadSettings() {
   const result = await chrome.storage.local.get(SETTINGS_KEY);
   return result[SETTINGS_KEY] ?? { aiPromptSuffix: AI_PROMPT_SUFFIX_DEFAULT };
+}
+
+async function saveSettings(settings) {
+  await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
 }
 
 // ===== Markdown生成（インライン） =====
@@ -699,9 +807,21 @@ function createSidebar() {
     <div class="mdreview-header">
       <div class="mdreview-header-row">
         <h2>Markdown Review</h2>
-        <button class="btn-collapse-toggle btn-collapse-sidebar" title="折りたたむ">▶</button>
+        <div class="mdreview-header-actions">
+          <button class="btn btn-settings btn-settings-toggle" type="button">設定</button>
+          <button class="btn-collapse-toggle btn-collapse-sidebar" title="折りたたむ">▶</button>
+        </div>
       </div>
       <div class="mdreview-repo-info"></div>
+    </div>
+    <div class="mdreview-settings-panel" style="display:none;">
+      <div class="mdreview-settings-label">AI 向け指示文（末尾に付加）</div>
+      <div class="mdreview-settings-help">Markdown の Summary セクション末尾に追加されます。</div>
+      <textarea class="mdreview-settings-textarea" placeholder="AI への指示文を入力してください..."></textarea>
+      <div class="mdreview-settings-actions">
+        <button class="btn btn-save btn-settings-save" type="button">設定を保存</button>
+        <button class="btn btn-cancel btn-settings-reset" type="button">デフォルトに戻す</button>
+      </div>
     </div>
     <div class="mdreview-mode-info">Codeモード: 行番号をクリックしてコメント対象を選択してください。</div>
     <div class="mdreview-selection" style="display:none;"></div>
@@ -729,6 +849,43 @@ function createSidebar() {
 function getSidebar() {
   if (!sidebarShadowRoot) return null;
   return sidebarShadowRoot.querySelector('.mdreview-sidebar');
+}
+
+function updateSettingsToggleLabel() {
+  const sidebar = getSidebar();
+  if (!sidebar) return;
+
+  const toggleBtn = sidebar.querySelector('.btn-settings-toggle');
+  if (toggleBtn) {
+    toggleBtn.textContent = settingsPanelOpen ? '設定を閉じる' : '設定';
+  }
+}
+
+function hideSettingsPanel() {
+  const sidebar = getSidebar();
+  if (!sidebar) return;
+
+  settingsPanelOpen = false;
+  const panel = sidebar.querySelector('.mdreview-settings-panel');
+  if (panel) {
+    panel.style.display = 'none';
+  }
+  updateSettingsToggleLabel();
+}
+
+async function showSettingsPanel() {
+  const sidebar = getSidebar();
+  if (!sidebar) return;
+
+  const panel = sidebar.querySelector('.mdreview-settings-panel');
+  const textarea = sidebar.querySelector('.mdreview-settings-textarea');
+  if (!panel || !textarea) return;
+
+  const settings = await loadSettings();
+  textarea.value = settings.aiPromptSuffix;
+  panel.style.display = 'flex';
+  settingsPanelOpen = true;
+  updateSettingsToggleLabel();
 }
 
 function updateSidebarHostStyle() {
@@ -780,12 +937,19 @@ function isSidebarVisible() {
 }
 
 function toggleSidebar() {
+  if (!isMdPage()) {
+    hideSidebar();
+    return false;
+  }
+
   if (sidebarState === 'expanded') {
     hideSidebar();
   } else {
     expandSidebar();
     renderSidebar();
   }
+
+  return true;
 }
 
 // ===== サイドバー描画 =====
@@ -798,6 +962,8 @@ async function renderSidebar() {
     sidebar.querySelector('.mdreview-repo-info').textContent =
       `${fileInfo.owner}/${fileInfo.repo} @ ${fileInfo.branch}`;
   }
+
+  updateSettingsToggleLabel();
 
   // モード情報更新（Code/Preview タブ状態を反映）
   updateModeInfo();
@@ -989,6 +1155,58 @@ function attachSidebarEvents() {
     });
   }
 
+  const settingsToggleBtn = sidebar.querySelector('.btn-settings-toggle');
+  if (settingsToggleBtn) {
+    settingsToggleBtn.addEventListener('click', async () => {
+      clearError();
+      if (settingsPanelOpen) {
+        hideSettingsPanel();
+        return;
+      }
+
+      try {
+        await showSettingsPanel();
+      } catch (e) {
+        showError('設定の読み込みに失敗しました: ' + e.message);
+      }
+    });
+  }
+
+  const settingsSaveBtn = sidebar.querySelector('.btn-settings-save');
+  if (settingsSaveBtn) {
+    settingsSaveBtn.addEventListener('click', async () => {
+      const textarea = sidebar.querySelector('.mdreview-settings-textarea');
+      if (!textarea) return;
+
+      const suffix = textarea.value.trim() || AI_PROMPT_SUFFIX_DEFAULT;
+      clearError();
+
+      try {
+        await saveSettings({ aiPromptSuffix: suffix });
+        textarea.value = suffix;
+
+        const originalText = settingsSaveBtn.textContent;
+        settingsSaveBtn.textContent = '保存しました';
+        setTimeout(() => {
+          settingsSaveBtn.textContent = originalText;
+        }, 2000);
+      } catch (e) {
+        showError('設定の保存に失敗しました: ' + e.message);
+      }
+    });
+  }
+
+  const settingsResetBtn = sidebar.querySelector('.btn-settings-reset');
+  if (settingsResetBtn) {
+    settingsResetBtn.addEventListener('click', () => {
+      const textarea = sidebar.querySelector('.mdreview-settings-textarea');
+      if (!textarea) return;
+
+      textarea.value = AI_PROMPT_SUFFIX_DEFAULT;
+      clearError();
+    });
+  }
+
   // 保存ボタン
   sidebar.querySelector('.btn-save').addEventListener('click', async () => {
     const textarea = sidebar.querySelector('.mdreview-textarea');
@@ -1158,8 +1376,13 @@ function clearError() {
 
 // ===== Code タブ: 行番号クリック =====
 function attachCodeLineHandlers() {
+  if (codeLineHandlersAttached) return;
+  codeLineHandlersAttached = true;
+
   // captureフェーズで登録: GitHubのReactがstopPropagationしても検知できる
   document.addEventListener('click', (e) => {
+    if (!isMdPage()) return;
+
     // 行番号要素を優先的に検出（コードコンテンツ除外）
     const lineNumEl = e.target.closest('.react-line-number[data-line-number]')
       ?? e.target.closest('td[data-line-number]');
@@ -1198,7 +1421,12 @@ function updateSelectingHighlight(lineNumber) {
 
 // ===== Preview タブ: テキスト選択 =====
 function attachPreviewSelectionHandlers() {
+  if (previewSelectionHandlersAttached) return;
+  previewSelectionHandlersAttached = true;
+
   document.addEventListener('mouseup', () => {
+    if (!isMdPage()) return;
+
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed) return;
 
@@ -1219,21 +1447,17 @@ function attachPreviewSelectionHandlers() {
 
 // ===== ハイライト復元 =====
 function restoreHighlights() {
-  try {
-    document.querySelectorAll(`.${UI.HIGHLIGHT_CLASS}`).forEach(el => {
-      el.classList.remove(UI.HIGHLIGHT_CLASS);
-    });
-    highlightedRows.clear();
+  document.querySelectorAll(`.${UI.HIGHLIGHT_CLASS}`).forEach(el => {
+    el.classList.remove(UI.HIGHLIGHT_CLASS);
+  });
+  highlightedRows.clear();
 
-    reviews
-      .filter(r => r.type === 'code' && r.lineNumber)
-      .forEach(r => {
-        highlightCodeLine(r.lineNumber);
-        highlightedRows.add(r.lineNumber);
-      });
-  } catch {
-    // ストレージアクセスエラーは無視
-  }
+  reviews
+    .filter(r => r.type === 'code' && r.lineNumber)
+    .forEach(r => {
+      highlightCodeLine(r.lineNumber);
+      highlightedRows.add(r.lineNumber);
+    });
 }
 
 function highlightCodeLine(lineNumber) {
@@ -1251,6 +1475,12 @@ async function handleNavigation() {
   editingId = null;
 
   if (!isMdPage()) {
+    fileInfo = null;
+    reviews = [];
+    allRepoReviews = {};
+    currentSelection = null;
+    editingId = null;
+    settingsPanelOpen = false;
     hideSidebar();
     return;
   }
@@ -1268,6 +1498,9 @@ async function handleNavigation() {
 }
 
 function observeTabSwitches() {
+  if (tabSwitchObserverStarted) return;
+  tabSwitchObserverStarted = true;
+
   // GitHub は Turbo (SPA) を使用
   document.addEventListener('turbo:load', handleNavigation);
 
@@ -1308,29 +1541,34 @@ function observeTabSwitches() {
 
 // ===== メッセージハンドラ =====
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.type === 'toggleSidebar') {
-    toggleSidebar();
-    sendResponse({ ok: true });
+  if (message.type !== 'toggleSidebar') return false;
+
+  if (!isMdPage()) {
+    hideSidebar();
+    sendResponse({ ok: false, reason: 'not_markdown' });
     return false;
   }
-  return false;
+
+  handleNavigation()
+    .then(() => {
+      toggleSidebar();
+      sendResponse({ ok: true });
+    })
+    .catch((error) => {
+      console.error('[mdreview] toggleSidebar failed:', error);
+      sendResponse({ ok: false, reason: 'error', message: error.message });
+    });
+
+  return true;
 });
 
 // ===== 初期化 =====
 async function init() {
-  if (!isMdPage()) return;
-
-  fileInfo = parseUrl();
-  allRepoReviews = await loadRepoData();
-  reviews = allRepoReviews[fileInfo?.path] ?? [];
-
-  createSidebar();
-  collapseSidebar(); // ページ遷移時は折りたたみ状態で表示
-  restoreHighlights();
-
   attachCodeLineHandlers();
   attachPreviewSelectionHandlers();
   observeTabSwitches();
+
+  await handleNavigation();
 }
 
 init();

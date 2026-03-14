@@ -46,7 +46,7 @@ async function init() {
     return;
   }
 
-  fileInfo = parseGitHubUrl(tab.url);
+  fileInfo = parseGitHubUrl(tab.url, tab.title ?? '');
   if (!fileInfo) {
     showNotMd();
     return;

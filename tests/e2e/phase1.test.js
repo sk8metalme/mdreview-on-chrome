@@ -80,6 +80,24 @@ test('lib/github-parser.js が .md URL を正しくパースする', async () =>
   const mdxResult = parseGitHubUrl('https://github.com/a/b/blob/dev/page.mdx');
   expect(mdxResult).not.toBeNull();
 
+  // スラッシュを含むブランチ名
+  const slashBranchResult = parseGitHubUrl(
+    'https://github.com/owner/repo/blob/feature/sidebar/README.md',
+    'README.md at feature/sidebar · owner/repo',
+  );
+  expect(slashBranchResult).not.toBeNull();
+  expect(slashBranchResult?.branch).toBe('feature/sidebar');
+  expect(slashBranchResult?.path).toBe('README.md');
+
+  // query / hash を含む URL
+  const decoratedUrlResult = parseGitHubUrl(
+    'https://github.com/owner/repo/blob/main/docs/README.md?plain=1#L10',
+    'docs/README.md at main · owner/repo',
+  );
+  expect(decoratedUrlResult).not.toBeNull();
+  expect(decoratedUrlResult?.branch).toBe('main');
+  expect(decoratedUrlResult?.path).toBe('docs/README.md');
+
   // isMdFile
   expect(isMdFile('docs/README.md')).toBe(true);
   expect(isMdFile('src/index.js')).toBe(false);
