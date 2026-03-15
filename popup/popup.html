@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MD Review</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <!-- ヘッダー -->
+    <header class="header">
+      <div class="header-title">
+        <span class="header-icon">📝</span>
+        <span class="header-text">MD Review</span>
+      </div>
+      <button id="btn-settings" class="icon-btn" title="設定">⚙️</button>
+    </header>
+
+    <!-- ファイル情報 -->
+    <section id="section-file-info" class="section file-info hidden">
+      <div class="file-info-row">
+        <span class="file-info-label">Repo</span>
+        <span id="file-repo" class="file-info-value"></span>
+      </div>
+      <div class="file-info-row">
+        <span class="file-info-label">Branch</span>
+        <span id="file-branch" class="file-info-value"></span>
+      </div>
+      <div class="file-info-row">
+        <span class="file-info-label">File</span>
+        <span id="file-path" class="file-info-value"></span>
+      </div>
+    </section>
+
+    <!-- 非対応ページメッセージ -->
+    <section id="section-not-md" class="section not-md hidden">
+      <div class="not-md-message">
+        <span class="not-md-icon">ℹ️</span>
+        <p>GitHub の Markdown ファイル (.md / .markdown / .mdx) を開いてください</p>
+      </div>
+    </section>
+
+    <!-- 選択状態 -->
+    <section id="section-selection" class="section selection-section hidden">
+      <div class="selection-header">
+        <span class="selection-badge" id="selection-mode-badge">Code</span>
+        <span id="selection-label" class="selection-label"></span>
+      </div>
+      <div id="selection-content" class="selection-content"></div>
+    </section>
+
+    <!-- コメント入力 -->
+    <section id="section-comment-form" class="section comment-form hidden">
+      <textarea
+        id="comment-input"
+        class="comment-textarea"
+        placeholder="レビューコメントを入力..."
+        rows="3"
+      ></textarea>
+      <div class="comment-form-actions">
+        <button id="btn-cancel" class="btn btn-secondary">キャンセル</button>
+        <button id="btn-save" class="btn btn-primary">保存</button>
+      </div>
+    </section>
+
+    <!-- コメント一覧 -->
+    <section id="section-comments" class="section comments-section hidden">
+      <div class="comments-header">
+        <span class="comments-title">コメント一覧</span>
+        <span id="comments-count" class="comments-count">0</span>
+      </div>
+      <ul id="comments-list" class="comments-list"></ul>
+    </section>
+
+    <!-- エクスポートボタン -->
+    <section id="section-export" class="section export-section hidden">
+      <div class="export-actions">
+        <button id="btn-copy" class="btn btn-export">📋 クリップボードにコピー</button>
+        <button id="btn-download" class="btn btn-export">⬇️ .md としてダウンロード</button>
+      </div>
+    </section>
+
+    <!-- 設定パネル -->
+    <section id="section-settings" class="section settings-section hidden">
+      <div class="settings-header">
+        <span class="settings-title">設定</span>
+        <button id="btn-settings-close" class="icon-btn">✕</button>
+      </div>
+      <div class="settings-body">
+        <label class="settings-label" for="ai-prompt-suffix">AI 向け指示文（末尾に付加）</label>
+        <textarea
+          id="ai-prompt-suffix"
+          class="settings-textarea"
+          rows="4"
+          placeholder="AI への指示文を入力..."
+        ></textarea>
+        <div class="settings-actions">
+          <button id="btn-settings-save" class="btn btn-primary">保存</button>
+          <button id="btn-settings-reset" class="btn btn-secondary">デフォルトに戻す</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
