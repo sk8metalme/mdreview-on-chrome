@@ -7,6 +7,7 @@ let fileInfo = null;
 let currentSelection = null;
 let reviews = [];
 let editingId = null;
+let activeTabId = null;
 
 // DOM要素
 const elFileInfo = document.getElementById('section-file-info');
@@ -45,6 +46,7 @@ async function init() {
     showNotMd();
     return;
   }
+  activeTabId = tab.id ?? null;
 
   fileInfo = parseGitHubUrl(tab.url, tab.title ?? '');
   if (!fileInfo) {
@@ -67,8 +69,9 @@ async function init() {
 }
 
 async function fetchLatestSelection() {
+  if (activeTabId == null) return;
   try {
-    const response = await chrome.runtime.sendMessage({ type: MESSAGES.GET_LATEST_SELECTION });
+    const response = await chrome.tabs.sendMessage(activeTabId, { type: MESSAGES.GET_LATEST_SELECTION });
     if (response?.selection) {
       updateSelectionDisplay(response.selection);
     }
@@ -140,7 +143,9 @@ async function saveComment() {
   elCommentInput.value = '';
 
   // コンテンツスクリプトへ通知
-  chrome.runtime.sendMessage({ type: MESSAGES.COMMENTS_UPDATED, fileInfo }).catch(() => {});
+  if (activeTabId != null) {
+    chrome.tabs.sendMessage(activeTabId, { type: MESSAGES.COMMENTS_UPDATED, fileInfo }).catch(() => {});
+  }
 }
 
 function cancelComment() {
@@ -218,7 +223,9 @@ async function confirmDeleteComment(id) {
   await deleteComment(fileInfo, id);
   reviews = await getFileComments(fileInfo);
   renderComments();
-  chrome.runtime.sendMessage({ type: MESSAGES.COMMENTS_UPDATED, fileInfo }).catch(() => {});
+  if (activeTabId != null) {
+    chrome.tabs.sendMessage(activeTabId, { type: MESSAGES.COMMENTS_UPDATED, fileInfo }).catch(() => {});
+  }
 }
 
 async function copyToClipboard() {

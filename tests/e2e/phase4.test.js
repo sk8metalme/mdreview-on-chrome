@@ -155,6 +155,9 @@ test('content.js が Markdown 判定付きで初期化とトグルを行う', as
   expect(content).toContain("reason: 'not_markdown'");
   expect(content).toContain('await handleNavigation();');
   expect(content).not.toContain('if (!isMdPage()) return;\n\n  fileInfo = parseUrl();');
+  expect(content).not.toContain('prc-SegmentedControl-Button-E48xz');
+  expect(content).toContain('[data-tab-item="preview"][aria-current="true"]');
+  expect(content).toContain('updateSelectingHighlight(null);');
 });
 
 test('content.js がサイドバー内の設定UIと保存処理を持つ', async () => {
@@ -166,6 +169,17 @@ test('content.js がサイドバー内の設定UIと保存処理を持つ', asyn
   expect(content).toContain('mdreview-settings-textarea');
   expect(content).toContain('async function saveSettings(settings)');
   expect(content).toContain('設定の保存に失敗しました');
+});
+
+test('popup.js が active tab の content script へメッセージを送る', async () => {
+  const { readFileSync } = await import('fs');
+  const content = readFileSync(join(EXTENSION_PATH, 'popup/popup.js'), 'utf-8');
+
+  expect(content).toContain('let activeTabId = null;');
+  expect(content).toContain('activeTabId = tab.id ?? null;');
+  expect(content).toContain('chrome.tabs.sendMessage(activeTabId, { type: MESSAGES.GET_LATEST_SELECTION })');
+  expect(content).toContain('chrome.tabs.sendMessage(activeTabId, { type: MESSAGES.COMMENTS_UPDATED, fileInfo })');
+  expect(content).not.toContain('chrome.runtime.sendMessage({ type: MESSAGES.GET_LATEST_SELECTION })');
 });
 
 test('generateRepoMarkdown でリポジトリ全体のMarkdownを生成する', async () => {

@@ -491,11 +491,23 @@ function isMdPage() {
 
 // ===== タブ検出 =====
 function getCurrentTab() {
-  // aria-current="true" のSegmentedControlボタンでアクティブタブを検出
-  const activeBtn = document.querySelector('.prc-SegmentedControl-Button-E48xz[aria-current="true"]');
-  const tabText = activeBtn?.textContent?.trim();
+  const previewTab = document.querySelector(
+    '[data-tab-item="preview"][aria-current="true"], [data-tab-item="preview"][aria-selected="true"]'
+  );
+  if (previewTab) return 'preview';
+
+  const codeTab = document.querySelector(
+    '[data-tab-item="blob-content-tab-rich-diff"][aria-current="true"], [data-tab-item="blob-content-tab-rich-diff"][aria-selected="true"]'
+  );
+  if (codeTab) return 'code';
+
+  const activeTab = document.querySelector(
+    '[role="tab"][aria-current="true"], [role="tab"][aria-selected="true"]'
+  );
+  const tabText = activeTab?.textContent?.trim();
   if (tabText === 'Preview') return 'preview';
   if (tabText === 'Code' || tabText === 'Blame') return 'code';
+
   // フォールバック: article.markdown-body の存在でPreviewを判定
   return document.querySelector('article.markdown-body') ? 'preview' : 'code';
 }
@@ -981,6 +993,7 @@ function updateSelectionDisplay() {
   const formEl = sidebar.querySelector('.mdreview-comment-form');
 
   if (!currentSelection && !editingId) {
+    updateSelectingHighlight(null);
     selEl.style.display = 'none';
     formEl.style.display = 'none';
     return;
@@ -994,6 +1007,7 @@ function updateSelectionDisplay() {
   if (currentSelection.type === 'code') {
     selEl.textContent = `選択中: Code L${currentSelection.lineNumber}`;
   } else {
+    updateSelectingHighlight(null);
     const preview = currentSelection.selectedText.length > 20
       ? currentSelection.selectedText.slice(0, 20) + '…'
       : currentSelection.selectedText;
